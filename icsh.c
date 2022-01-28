@@ -118,6 +118,7 @@ void all_command(char* cmd) {
 
 // if command is empty then the program will loop again
 void check_Empty_Command() {
+
     while (1) {
         get_command();
         trimTrailing(command);
@@ -130,8 +131,30 @@ void check_Empty_Command() {
     }
 }
 
+// "script-mode" read from the file test.sh
+void script_Command(char* file) {
+    char buff[maxChar];
+    FILE *fp = fopen(file, "r");
+    if (fp) {
+        while(fscanf(fp,"%[^\n]\n", buff)!=EOF) {
+            trimTrailing(buff);
+            if (is_Empty(buff)) {
+                continue;
+            }
+            else {
+                all_command(buff);
+            }
+        }
+    }
+}
+
 int main(int* argc, char *argv[]) {
+    if (argv[1]) {
+        script_Command(argv[1]);
+    }
+    else {
         printf("Starting IC shell\n");
         check_Empty_Command();
+    }
     return 0;
 }
