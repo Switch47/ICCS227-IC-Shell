@@ -2,10 +2,16 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>
+
 
 #define maxChar 250 //Max character of the command
 char command[maxChar];
 char* command_before_allDelete; // save previous command to use "!!"
+pid_t pid;
 
 // To check that command is empty or not
 bool is_Empty(char* input) { 
@@ -28,6 +34,10 @@ void get_command() {
 // print all argument
 void print_argument(char* input) {
     input = strtok(NULL," ");
+    if (input == NULL) {
+        printf("");
+    }
+    else {
     printf("%s",input);
     input = strtok(NULL," ");
     while (input != NULL) {
@@ -35,9 +45,34 @@ void print_argument(char* input) {
         input = strtok(NULL," ");
     }
     printf("\n");
+    }
 }
 
-// delete space
+// delete space infront of arguments
+char* removeLeadingSpaces(char* str)
+{
+    static char str1[99];
+    int count = 0, j, k;
+  
+    // Iterate String until last
+    // leading space character
+    while (str[count] == ' ') {
+        count++;
+    }
+  
+    // Putting string into another
+    // string variable after
+    // removing leading white spaces
+    for (j = count, k = 0;
+         str[j] != '\0'; j++, k++) {
+        str1[k] = str[j];
+    }
+    str1[k] = '\0';
+  
+    return str1;
+}
+
+// delete space behind arguements
 void trimTrailing(char * str)
 {
     int index, i;
@@ -106,18 +141,43 @@ void all_command(char* cmd) {
         }
     }
 
-    // any other command
+    // any other commands such as "ls","vim"
     else {
-        printf("bad command\n");
-        // printf("%d",strlen(split));
-        // for (int i = 0; i < strlen(split); i++) {
-        //     printf("%c\n",split[i]);
-        // }
+        command_before_allDelete = copyString(cmd); // copy command for using "!!"
+        pid = fork();
+        if (pid < 0) {
+            printf("fork() failed\n");
+        }
+        else if (pid == 0) {
+            
+            // create string array to use execvp
+            int index = 0;
+            char* arg[4] = {};
+            while(split!=NULL) {
+                *(arg+index)=split;
+                if (*(*(arg+index)+strlen(arg[index])-1)==' ' || *(*(arg+index)+strlen(arg[index])-1)=='\n') {
+                    *((arg+index)+strlen(arg[index])-1) = '\0';
+                }
+                split = strtok(NULL," ");
+                index++;
+            }
+            arg[index] = NULL; // add null at last index of the array
+            
+            int ex = execvp(arg[0],arg);
+            if (ex == -1) {
+                printf("bad command\n");
+            }
+        }
+        else {
+            waitpid(pid,NULL,0);
+        }
+        
     }
 }
 
 // if command is empty then the program will loop again
 void check_Empty_Command() {
+
     while (1) {
         get_command();
         trimTrailing(command);
@@ -130,8 +190,31 @@ void check_Empty_Command() {
     }
 }
 
+// "script-mode" read from the file test.sh
+void script_Command(char* file) {
+    char buff[maxChar];
+    FILE *fp = fopen(file, "r");
+    if (fp) {
+        while(fscanf(fp,"%[^\n]\n", buff)!=EOF) {
+            trimTrailing(buff);
+            if (is_Empty(buff)) {
+                continue;
+            }
+            else {
+                all_command(buff);
+            }
+        }
+    }
+}
+
+
 int main(int* argc, char *argv[]) {
+    if (argv[1]) {
+        script_Command(argv[1]);
+    }
+    else {
         printf("Starting IC shell\n");
         check_Empty_Command();
+    }
     return 0;
 }
