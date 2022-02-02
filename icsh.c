@@ -207,7 +207,10 @@ void script_Command(char* file) {
     }
 }
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> a04709660d43c26d72b732aa5f8a93895699e00f
 int main(int* argc, char *argv[]) {
     if (argv[1]) {
         script_Command(argv[1]);
