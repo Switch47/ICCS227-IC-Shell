@@ -146,7 +146,7 @@ void all_command(char* cmd) {
     else {
         command_before_allDelete = copyString(cmd); // copy command for using "!!"
         pid = fork();
-        // int stat;
+        
         if (pid < 0) {
             printf("fork() failed\n");
         }
