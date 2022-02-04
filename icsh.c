@@ -102,23 +102,6 @@ char* copyString(char* input) {
     return (char*)output;
 }
 
-int is_foreground() {
-    int devtty;
-    if ((devtty = open ("/dev/tty", O_RDWR)) < 0) {
-        return 0;
-    }
-    return 1;
-}
-
-void sig_handler(int input) {
-    if (input == SIGINT && is_foreground()) {
-        exit(0);
-    }
-    else if (input == SIGSTOP) {
-        exit(0);
-    }
-}
-
 // All command
 void all_command(char* cmd) {
     char* copy_command = copyString(cmd); // create copy to protect data of command
