@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <fcntl.h>
 
 
 #define maxChar 250 //Max character of the command
@@ -100,13 +102,29 @@ char* copyString(char* input) {
     return (char*)output;
 }
 
+int is_foreground() {
+    int devtty;
+    if ((devtty = open ("/dev/tty", O_RDWR)) < 0) {
+        return 0;
+    }
+    return 1;
+}
+
+void sig_handler(int input) {
+    if (input == SIGINT && is_foreground()) {
+        exit(0);
+    }
+    else if (input == SIGSTOP) {
+        exit(0);
+    }
+}
+
 // All command
 void all_command(char* cmd) {
     char* copy_command = copyString(cmd); // create copy to protect data of command
     char* split = strtok(copy_command," ");
     trimTrailing(split);
 
-    // "echo" command
     if (strcmp(split,"echo") == 0) {
         command_before_allDelete = copyString(cmd);
         print_argument(split);
@@ -145,17 +163,28 @@ void all_command(char* cmd) {
     else {
         command_before_allDelete = copyString(cmd); // copy command for using "!!"
         pid = fork();
+        // int stat;
         if (pid < 0) {
             printf("fork() failed\n");
         }
         else if (pid == 0) {
+            
+            // set up a new process group
+            if (setpgid(0,0)<0) {
+                perror("error!!");
+                exit(EXIT_FAILURE);
+            }
+
+            // "tcsetpgrp" transfer the terminal control to the new process group
+            tcsetpgrp(STDOUT_FILENO,getpid());
             
             // create string array to use execvp
             int index = 0;
             char* arg[4] = {};
             while(split!=NULL) {
                 *(arg+index)=split;
-                if (*(*(arg+index)+strlen(arg[index])-1)==' ' || *(*(arg+index)+strlen(arg[index])-1)=='\n') {
+                if (*(*(arg+index)+strlen(arg[index])-1)==' ' 
+                    || *(*(arg+index)+strlen(arg[index])-1)=='\n') {
                     *((arg+index)+strlen(arg[index])-1) = '\0';
                 }
                 split = strtok(NULL," ");
@@ -163,21 +192,26 @@ void all_command(char* cmd) {
             }
             arg[index] = NULL; // add null at last index of the array
             
+            signal(SIGINT,SIG_DFL);
+            signal(SIGTSTP,SIG_DFL);
+
             int ex = execvp(arg[0],arg);
             if (ex == -1) {
                 printf("bad command\n");
             }
         }
         else {
-            waitpid(pid,NULL,0);
+            waitpid(pid,NULL,WUNTRACED);
+            tcsetpgrp(STDOUT_FILENO,getpid());            
         }
-        
     }
 }
 
 // if command is empty then the program will loop again
 void check_Empty_Command() {
-
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    signal(SIGINT, SIG_IGN);
     while (1) {
         get_command();
         trimTrailing(command);
