@@ -14,6 +14,7 @@
 char command[maxChar];
 char* command_before_allDelete; // save previous command to use "!!"
 pid_t pid;
+int exit_status = 0;
 
 // To check that command is empty or not
 bool is_Empty(char* input) { 
@@ -35,7 +36,7 @@ void get_command() {
 
 // print all argument
 void print_argument(char* input) {
-    input = strtok(NULL," ");
+    // input = strtok(NULL," ");
     if (input == NULL) {
         printf("");
     }
@@ -106,11 +107,23 @@ char* copyString(char* input) {
 void all_command(char* cmd) {
     char* copy_command = copyString(cmd); // create copy to protect data of command
     char* split = strtok(copy_command," ");
+    // char* copy_command2 = copyString(cmd);
+    // char* copy_split = strtok(copy_command2," ");
+    // trimTrailing(copy_split);
     trimTrailing(split);
 
     if (strcmp(split,"echo") == 0) {
         command_before_allDelete = copyString(cmd);
-        print_argument(split);
+        // print_argument(copy_split);
+        // copy_split = strtok(NULL," ");
+        split = strtok(NULL," ");
+        if (strcmp(split,"$?") == 0) {
+            printf("%d\n",exit_status);
+        }
+        else {
+            print_argument(split);
+            exit_status = 0;
+        }
     }
 
     // "!!" command
@@ -146,12 +159,13 @@ void all_command(char* cmd) {
     else {
         command_before_allDelete = copyString(cmd); // copy command for using "!!"
         pid = fork();
+        int stat = 0;
         
         if (pid < 0) {
             printf("fork() failed\n");
         }
         else if (pid == 0) {
-            
+            // child process
             // set up a new process group
             if (setpgid(0,0)<0) {
                 perror("error!!");
@@ -160,6 +174,9 @@ void all_command(char* cmd) {
 
             // "tcsetpgrp" transfer the terminal control to the new process group
             tcsetpgrp(STDOUT_FILENO,getpid());
+            signal(SIGTTOU, SIG_IGN);
+            signal(SIGTSTP, SIG_IGN); // ignore ctrl z
+            signal(SIGINT, SIG_IGN); // ignore ctrl c
             
             // create string array to use execvp
             int index = 0;
@@ -184,8 +201,22 @@ void all_command(char* cmd) {
             }
         }
         else {
-            waitpid(pid,NULL,WUNTRACED);
-            tcsetpgrp(STDOUT_FILENO,getpid());            
+            //parent process
+            signal(SIGTTOU, SIG_IGN);
+            signal(SIGTSTP, SIG_IGN); // ignore ctrl z
+            signal(SIGINT, SIG_IGN); // ignore ctrl c
+            waitpid(pid,&stat,WUNTRACED);
+            tcsetpgrp(STDOUT_FILENO,getpid());    
+            
+            if (WIFSIGNALED(stat)) {
+                exit_status = WTERMSIG(stat);
+            }        
+            if (WIFSTOPPED(stat)) {
+                exit_status = WSTOPSIG(stat);
+            } 
+            if (WIFEXITED(stat)) {
+                exit_status = WEXITSTATUS(stat);
+            }
         }
     }
 }
@@ -193,8 +224,8 @@ void all_command(char* cmd) {
 // if command is empty then the program will loop again
 void check_Empty_Command() {
     signal(SIGTTOU, SIG_IGN);
-    signal(SIGTSTP, SIG_IGN);
-    signal(SIGINT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN); // ignore ctrl z
+    signal(SIGINT, SIG_IGN); // ignore ctrl c
     while (1) {
         get_command();
         trimTrailing(command);
