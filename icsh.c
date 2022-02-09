@@ -103,19 +103,48 @@ char* copyString(char* input) {
     return (char*)output;
 }
 
+void ioRedirection(char** input){
+    int index = 0;
+    while(input[index]!= NULL){
+        if(input[index] == NULL){break;}
+        else if(strcmp(input[index],"<")==0 && input[index+1] != NULL){
+            int fds = open(input[index+1],O_RDONLY);
+            if(fds < 0){
+                perror ("error");
+                exit(EXIT_FAILURE);
+            }
+            else{
+                dup2(fds,STDIN_FILENO);
+                input[index] = NULL;
+                close(fds);
+                break;
+            }
+        }
+        else if(strcmp(input[index],">")==0 && input[index+1] != NULL){
+            int fds = open(input[index+1],O_WRONLY|O_CREAT);
+            if(fds < 0){
+                perror ("error!!");
+                exit(EXIT_FAILURE);
+            }else{
+                dup2(fds,STDOUT_FILENO);
+                input[index] = NULL;
+                input[index+1] = NULL;
+                close(fds);
+                break;
+            }
+        }
+        else{ index++; }
+    }
+}
+
 // All command
 void all_command(char* cmd) {
     char* copy_command = copyString(cmd); // create copy to protect data of command
     char* split = strtok(copy_command," ");
-    // char* copy_command2 = copyString(cmd);
-    // char* copy_split = strtok(copy_command2," ");
-    // trimTrailing(copy_split);
     trimTrailing(split);
 
     if (strcmp(split,"echo") == 0) {
         command_before_allDelete = copyString(cmd);
-        // print_argument(copy_split);
-        // copy_split = strtok(NULL," ");
         split = strtok(NULL," ");
         if (strcmp(split,"$?") == 0) {
             printf("%d\n",exit_status);
@@ -147,7 +176,8 @@ void all_command(char* cmd) {
     else if (strcmp(split,"exit") == 0) {
         split = strtok(NULL," ");
         if(split==NULL) { // if there is no number then it will loop again
-            printf("");
+            printf("bye\n");
+            exit(0);
         }
         else {
             printf("bye\n");
@@ -163,6 +193,7 @@ void all_command(char* cmd) {
         
         if (pid < 0) {
             printf("fork() failed\n");
+            exit(EXIT_FAILURE);
         }
         else if (pid == 0) {
             // child process
@@ -172,11 +203,13 @@ void all_command(char* cmd) {
                 exit(EXIT_FAILURE);
             }
 
-            // "tcsetpgrp" transfer the terminal control to the new process group
-            tcsetpgrp(STDOUT_FILENO,getpid());
             signal(SIGTTOU, SIG_IGN);
-            signal(SIGTSTP, SIG_IGN); // ignore ctrl z
-            signal(SIGINT, SIG_IGN); // ignore ctrl c
+
+            // "tcsetpgrp" transfer the terminal control to the new process group
+            tcsetpgrp(STDIN_FILENO,getpid());
+
+            // signal(SIGTSTP, SIG_IGN); // ignore ctrl z
+            // signal(SIGINT, SIG_IGN); // ignore ctrl c
             
             // create string array to use execvp
             int index = 0;
@@ -195,18 +228,20 @@ void all_command(char* cmd) {
             signal(SIGINT,SIG_DFL);
             signal(SIGTSTP,SIG_DFL);
 
+            ioRedirection(arg);
             int ex = execvp(arg[0],arg);
             if (ex == -1) {
                 printf("bad command\n");
+                kill(getpid(),SIGINT);
             }
         }
         else {
             //parent process
+            waitpid(pid,&stat,WUNTRACED); 
             signal(SIGTTOU, SIG_IGN);
+            tcsetpgrp(STDOUT_FILENO,getpid()); 
             signal(SIGTSTP, SIG_IGN); // ignore ctrl z
-            signal(SIGINT, SIG_IGN); // ignore ctrl c
-            waitpid(pid,&stat,WUNTRACED);
-            tcsetpgrp(STDOUT_FILENO,getpid());    
+            signal(SIGINT, SIG_IGN); // ignore ctrl c  
             
             if (WIFSIGNALED(stat)) {
                 exit_status = WTERMSIG(stat);
