@@ -25,7 +25,7 @@ struct jobs {
 
 struct jobs jobLst[maxChar]; // save jobs (sleep number)
 int job_count; // count size of jobs in jobLst
-// char* history[maxChar]; // keep all command history
+char* history[maxChar]; // keep all command history
 
 // To check that command is empty or not
 bool is_Empty(char* input) { 
@@ -231,12 +231,30 @@ void isemptyJob() { // to check that jobLst is empty or not if empty then job wi
     }
 }
 
+void addHistory(char* cmd) { // add command to history
+    for (int x = 0; x < maxChar; x++) {
+        if (history[x] == NULL) {
+            history[x] = copyString(cmd);
+            break;
+        }
+    }
+}
+
+void printHistory() { // print all history commands
+    int index = 1;
+    for (int x = 0; x < maxChar; x++) {
+        if (history[x] != NULL) {
+            printf("%d      %s\n",index,history[x]);
+            index++;
+        }
+    }
+}
+
 // All command
 void all_command(char* cmd) {
     char* copy_command = copyString(cmd); // create copy to protect data of command
     char* split = strtok(copy_command," ");
     trimTrailing(split);
-
     if (strcmp(split,"echo") == 0) {
         command_before_allDelete = copyString(cmd);
         split = strtok(NULL," ");
@@ -302,9 +320,9 @@ void all_command(char* cmd) {
             printf("bad command\n");
         }
     }
-    // else if (strcmp(split,"history") == 0) {
-    //     printf("");
-    // } 
+    else if (strcmp(split,"history") == 0) {
+        printHistory();
+    } 
     else if (strcmp(split,"jobs") == 0) {
         if (job_count == 0) {
             printf("");
@@ -436,6 +454,7 @@ void check_Empty_Command() {
             continue;
         }
         else {
+            addHistory(command);
             all_command(command);
         }
     }
