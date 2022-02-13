@@ -380,6 +380,7 @@ void all_command(char* cmd) {
                 kill(getpid(),SIGINT);
             }
         }
+        
         else {
             //parent process
             setpgid(pid, pid);
