@@ -9,12 +9,23 @@
 #include <signal.h>
 #include <fcntl.h>
 
-
 #define maxChar 250 //Max character of the command
-char command[maxChar];
+char command[maxChar]; // save original command
 char* command_before_allDelete; // save previous command to use "!!"
 pid_t pid;
-int exit_status = 0;
+int exit_status = 0; // for "echo $?" command
+
+struct jobs {
+    int jobNum; // job id
+    int pid; //  pid
+    char command[maxChar]; // command such as "sleep 50 &"
+    int status; // 0 : nothing, 1 : running, 2 : Done, 3 : Stop, 4 : wait
+    char symbol; // '+', '-' , or nothing
+};
+
+struct jobs jobLst[maxChar]; // save jobs (sleep number)
+int job_count; // count size of jobs in jobLst
+// char* history[maxChar]; // keep all command history
 
 // To check that command is empty or not
 bool is_Empty(char* input) { 
@@ -28,15 +39,52 @@ bool is_Empty(char* input) {
     return x;
 }
 
+void csymbol() {    // change the last command that was used '+' -> '-' | '-' -> null
+    for (int i = 0; i < maxChar; i++) {
+        if (jobLst[i].symbol == '+') {
+            jobLst[i].symbol = '-';
+        }
+        else {
+            jobLst[i].symbol = ' ';
+        }
+    }
+}
+
+void handlerDeleteJobLst() { // For SIGCHLD
+    pid_t pid;
+    int stat;
+    pid = wait3(&stat, WNOHANG, (struct rusage *)NULL);
+    if (pid == 0) return; else if (pid == -1) return;
+    else {
+        for (int i = 0; i < maxChar; i++) {
+            if (jobLst[i].pid == pid) {
+                csymbol();
+                jobLst[i].status = 2; // 2 = Done
+                jobLst[i].symbol = '+';
+                job_count--;
+            }
+        }
+    }
+}
+
+void printDone() {  // print Done if the process sleep is success
+    for (int i = 0; i < maxChar; i++) {
+        if (jobLst[i].status == 2) {
+            printf("[%d]%c   Done                   %s\n",jobLst[i].jobNum,jobLst[i].symbol,jobLst[i].command);
+            jobLst[i].status = 4; // wait (until jobLst is null)
+        }
+    }
+}
+
 // print icsh $ then get input command
 void get_command() {
+    signal(SIGCHLD, handlerDeleteJobLst);   // to detect sleep processes
     printf("icsh $ ");
     fgets(command,maxChar,stdin);
 }
 
 // print all argument
 void print_argument(char* input) {
-    // input = strtok(NULL," ");
     if (input == NULL) {
         printf("");
     }
@@ -49,30 +97,6 @@ void print_argument(char* input) {
     }
     printf("\n");
     }
-}
-
-// delete space infront of arguments
-char* removeLeadingSpaces(char* str)
-{
-    static char str1[99];
-    int count = 0, j, k;
-  
-    // Iterate String until last
-    // leading space character
-    while (str[count] == ' ') {
-        count++;
-    }
-  
-    // Putting string into another
-    // string variable after
-    // removing leading white spaces
-    for (j = count, k = 0;
-         str[j] != '\0'; j++, k++) {
-        str1[k] = str[j];
-    }
-    str1[k] = '\0';
-  
-    return str1;
 }
 
 // delete space behind arguements
@@ -103,7 +127,7 @@ char* copyString(char* input) {
     return (char*)output;
 }
 
-void ioRedirection(char** input){
+void ioRedirection(char** input){ // I/O Redirection "<" and ">"
     int index = 0;
     while(input[index]!= NULL){
         if(input[index] == NULL){break;}
@@ -134,6 +158,76 @@ void ioRedirection(char** input){
             }
         }
         else{ index++; }
+    }
+}
+
+void fg(int num) {  // foreground (fg %num)
+    
+    int pid = getpid();
+    if (job_count == 0) {
+        printf("-bash: fg: %%"); 
+        printf("%d: no such job\n",num);
+    }
+    else {
+        
+    for (int i = 1; i < maxChar; i++) {
+        if (jobLst[i].status == 1 && jobLst[i].jobNum == num) { // 1 = running
+            csymbol();
+            int stat;
+            jobLst[i].symbol = '+';
+            printf("%s",jobLst[i].command);
+            printf("\n");
+            tcsetpgrp(STDIN_FILENO, jobLst[i].pid);
+            
+            kill(jobLst[i].pid, SIGCONT);
+            waitpid(jobLst[i].pid, &stat, WUNTRACED);
+
+            if (WIFSIGNALED(stat)) {
+                exit_status = WTERMSIG(stat);
+            }        
+            if (WIFSTOPPED(stat)) {
+                jobLst[i].status = 3; // 3 = Done
+                printf("[%d]%c   Stopped                %s\n",jobLst[i].jobNum,jobLst[i].symbol,jobLst[i].command);
+                tcsetpgrp(STDIN_FILENO,pid);
+                exit_status = WSTOPSIG(stat);
+                return;
+            } 
+            if (WIFEXITED(stat)) {
+                exit_status = WEXITSTATUS(stat);
+            }
+        }
+        tcsetpgrp(STDIN_FILENO, pid);
+    }
+    }
+}
+
+void bg(int num) {  // background (bg %num)
+    if (job_count == 0) {
+        printf("-bash: bg: %%"); 
+        printf("%d: no such job\n",num);
+    }
+    else {
+        for (int i = 1; i < maxChar; i++) {
+            if (jobLst[i].status == 3 && jobLst[i].jobNum == num) { // 3 = stopped
+                csymbol();
+                int stat;
+                jobLst[i].status = 1;
+                jobLst[i].symbol = '+';
+                printf("[%d]%c %s\n",jobLst[i].jobNum,jobLst[i].symbol,jobLst[i].command);
+                kill(jobLst[i].pid,SIGCONT);
+            }
+        
+        }
+    }
+}
+
+void isemptyJob() { // to check that jobLst is empty or not if empty then job will change to null
+    if (job_count == 0) {
+        for (int i = 0; i < maxChar; i++) {
+            if (jobLst[i].status == 4) { 
+                jobLst[i].status = 0;
+            }
+        }
     }
 }
 
@@ -184,12 +278,80 @@ void all_command(char* cmd) {
             exit(atoi(split));
         }
     }
+    else if (strcmp(split,"fg") == 0) {
+        struct jobs* copyjobLst = jobLst;
+        split = strtok(NULL," ");
+        if (split[0]=='%') {
+            split[0]=' ';
+            int num = atoi(split);
+            fg(num);
+        }
+        else {
+            printf("bad command\n");
+        }
+    }
+    else if (strcmp(split,"bg") == 0) {
+        struct jobs* copyjobLst = jobLst;
+        split = strtok(NULL," ");
+        if (split[0]=='%') {
+            split[0]=' ';
+            int num = atoi(split);
+            bg(num);
+        }
+        else {
+            printf("bad command\n");
+        }
+    }
+    // else if (strcmp(split,"history") == 0) {
+    //     printf("");
+    // } 
+    else if (strcmp(split,"jobs") == 0) {
+        if (job_count == 0) {
+            printf("");
+        }
+        else {
+            for (int i = 0; i < maxChar; i++) {
+                if (jobLst[i].jobNum != 0 && jobLst[i].status == 1) {
+                    int count = job_count;
+                    char* cpyJob;
+                    strcpy(cpyJob,jobLst[i].command);
+                    trimTrailing(cpyJob);     
+                    printf("[%d]%c   Running                %s\n",jobLst[i].jobNum,jobLst[i].symbol,cpyJob);
+                }
+                else if (jobLst[i].jobNum != 0 && jobLst[i].status == 3) {
+                    printf("[%d]%c   Stopped                %s\n",jobLst[i].jobNum,jobLst[i].symbol,jobLst[i].command);
+                }
+                else if (jobLst[i].jobNum != 0 && jobLst[i].status == 2) {
+                    printf("[%d]%c   Done                   %s\n",jobLst[i].jobNum,jobLst[i].symbol,jobLst[i].command);
+                    jobLst[i].status = 4;
+                }
+            }
+        }
+    }
 
     // any other commands such as "ls","vim"
     else {
         command_before_allDelete = copyString(cmd); // copy command for using "!!"
         pid = fork();
         int stat = 0;
+        int backgroundCheck = 0; // check background or foreground
+        // create string array to use execvp
+        int index = 0;
+        char* arg[4] = {};
+        while(split!=NULL) {
+            if (strcmp(split,"&") == 0) {
+                backgroundCheck = 1;
+                break;
+            }
+            *(arg+index)=split;
+            if (*(*(arg+index)+strlen(arg[index])-1)==' ' 
+                || *(*(arg+index)+strlen(arg[index])-1)=='\n') {
+                *((arg+index)+strlen(arg[index])-1) = '\0';
+            }
+            split = strtok(NULL," ");
+            index++;
+        }
+        arg[index] = NULL; // add null at last index of the array
         
         if (pid < 0) {
             printf("fork() failed\n");
@@ -202,32 +364,15 @@ void all_command(char* cmd) {
                 perror("error!!");
                 exit(EXIT_FAILURE);
             }
-
             signal(SIGTTOU, SIG_IGN);
-
-            // "tcsetpgrp" transfer the terminal control to the new process group
-            tcsetpgrp(STDIN_FILENO,getpid());
-
-            // signal(SIGTSTP, SIG_IGN); // ignore ctrl z
-            // signal(SIGINT, SIG_IGN); // ignore ctrl c
-            
-            // create string array to use execvp
-            int index = 0;
-            char* arg[4] = {};
-            while(split!=NULL) {
-                *(arg+index)=split;
-                if (*(*(arg+index)+strlen(arg[index])-1)==' ' 
-                    || *(*(arg+index)+strlen(arg[index])-1)=='\n') {
-                    *((arg+index)+strlen(arg[index])-1) = '\0';
-                }
-                split = strtok(NULL," ");
-                index++;
-            }
-            arg[index] = NULL; // add null at last index of the array
-            
             signal(SIGINT,SIG_DFL);
             signal(SIGTSTP,SIG_DFL);
 
+            // "tcsetpgrp" transfer the terminal control to the new process group
+            if (backgroundCheck == 0) {
+                tcsetpgrp(STDIN_FILENO,getpid());
+            }
+            
             ioRedirection(arg);
             int ex = execvp(arg[0],arg);
             if (ex == -1) {
@@ -237,20 +382,54 @@ void all_command(char* cmd) {
         }
         else {
             //parent process
-            waitpid(pid,&stat,WUNTRACED); 
-            signal(SIGTTOU, SIG_IGN);
-            tcsetpgrp(STDOUT_FILENO,getpid()); 
-            signal(SIGTSTP, SIG_IGN); // ignore ctrl z
-            signal(SIGINT, SIG_IGN); // ignore ctrl c  
+            setpgid(pid, pid);
+            if (backgroundCheck == 0) {
+                waitpid(pid,&stat,WUNTRACED); 
+                signal(SIGTTOU, SIG_IGN);
+                tcsetpgrp(STDOUT_FILENO,getpid()); 
+                signal(SIGTSTP, SIG_IGN); // ignore ctrl z
+                signal(SIGINT, SIG_IGN); // ignore ctrl c  
             
-            if (WIFSIGNALED(stat)) {
-                exit_status = WTERMSIG(stat);
-            }        
-            if (WIFSTOPPED(stat)) {
-                exit_status = WSTOPSIG(stat);
-            } 
-            if (WIFEXITED(stat)) {
-                exit_status = WEXITSTATUS(stat);
+                if (WIFSIGNALED(stat)) {
+                    exit_status = WTERMSIG(stat);
+                }        
+                if (WIFSTOPPED(stat)) {
+                    exit_status = WSTOPSIG(stat);
+                } 
+                if (WIFEXITED(stat)) {
+                    exit_status = WEXITSTATUS(stat);
+                }
+            }
+            else {
+                int cpy_i;
+                for (int i = 1; i < maxChar; i++) {
+                    // || jobLst[i].status == 2
+                    // if (job_count == 0) {
+                    //     jobLst[i].status = 0;
+                    // }
+                    if (jobLst[i].status == 0) {
+                        csymbol();
+                        jobLst[i].jobNum = i;
+                        cpy_i = i;
+                        jobLst[i].pid = pid;
+                        strcpy(jobLst[i].command,cmd);
+                        jobLst[i].status = 1;
+                        jobLst[i].symbol = '+';
+                        break;
+                    }
+                    // else if (jobLst[i].status == 4 && job_count == 0) {
+                    //     csymbol();
+                    //     jobLst[i].jobNum = job_count+1;
+                    //     cpy_i = i;
+                    //     jobLst[i].pid = pid;
+                    //     strcpy(jobLst[i].command,cmd);
+                    //     jobLst[i].status = 1;
+                    //     jobLst[i].symbol = '+';
+                    //     break;
+                    // } 
+                }
+                job_count++;
+                printf("[%i] %i\n", jobLst[cpy_i].jobNum, jobLst[cpy_i].pid);
             }
         }
     }
@@ -262,6 +441,8 @@ void check_Empty_Command() {
     signal(SIGTSTP, SIG_IGN); // ignore ctrl z
     signal(SIGINT, SIG_IGN); // ignore ctrl c
     while (1) {
+        printDone();
+        isemptyJob();
         get_command();
         trimTrailing(command);
         if (is_Empty(command)) {
