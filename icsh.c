@@ -380,7 +380,7 @@ void all_command(char* cmd) {
                 kill(getpid(),SIGINT);
             }
         }
-        
+
         else {
             //parent process
             setpgid(pid, pid);
@@ -404,10 +404,6 @@ void all_command(char* cmd) {
             else {
                 int cpy_i;
                 for (int i = 1; i < maxChar; i++) {
-                    // || jobLst[i].status == 2
-                    // if (job_count == 0) {
-                    //     jobLst[i].status = 0;
-                    // }
                     if (jobLst[i].status == 0) {
                         csymbol();
                         jobLst[i].jobNum = i;
@@ -418,16 +414,6 @@ void all_command(char* cmd) {
                         jobLst[i].symbol = '+';
                         break;
                     }
-                    // else if (jobLst[i].status == 4 && job_count == 0) {
-                    //     csymbol();
-                    //     jobLst[i].jobNum = job_count+1;
-                    //     cpy_i = i;
-                    //     jobLst[i].pid = pid;
-                    //     strcpy(jobLst[i].command,cmd);
-                    //     jobLst[i].status = 1;
-                    //     jobLst[i].symbol = '+';
-                    //     break;
-                    // } 
                 }
                 job_count++;
                 printf("[%i] %i\n", jobLst[cpy_i].jobNum, jobLst[cpy_i].pid);
